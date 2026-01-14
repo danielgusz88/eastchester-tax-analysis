@@ -604,6 +604,206 @@ def render_town_budget_comparison():
         st.caption(f"📅 Data collected: {comparison.eastchester.collection_date}")
         st.caption(f"📊 Sources: Municipal budgets and websites")
         
+        st.divider()
+        
+        # =====================================================================
+        # TAX BURDEN ANALYSIS
+        # =====================================================================
+        st.subheader("💰 Tax Burden vs Services Analysis")
+        st.write("Comparing property taxes paid vs services received for combined Eastchester area")
+        
+        # Get tax burden analysis
+        typical_home = st.slider(
+            "Typical Home Value for Analysis",
+            min_value=500_000,
+            max_value=2_500_000,
+            value=1_000_000,
+            step=50_000,
+            format="$%d",
+            key="tax_burden_home_value"
+        )
+        
+        typical_sqft = st.slider(
+            "Typical Square Footage",
+            min_value=1000,
+            max_value=4000,
+            value=2000,
+            step=100,
+            key="tax_burden_sqft"
+        )
+        
+        try:
+            # Calculate tax burdens
+            combined_eastchester = comparison.get_combined_eastchester_tax_analysis(typical_home, typical_sqft)
+            all_burdens = comparison.calculate_tax_burdens(typical_home, typical_sqft)
+            
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    "Eastchester Area\n(Combined)",
+                    f"${combined_eastchester.weighted_avg_tax_per_sqft:.2f}/sqft",
+                    f"${combined_eastchester.weighted_avg_tax_per_taxpayer:,.0f}/taxpayer"
+                )
+                st.caption("Weighted average across 3 municipalities")
+            
+            # Calculate comparison average
+            comp_burdens = [b for k, b in all_burdens.items() if k in ['scarsdale', 'pelham', 'larchmont']]
+            if comp_burdens:
+                avg_tax_per_sqft = sum(b.tax_per_sqft for b in comp_burdens) / len(comp_burdens)
+                avg_tax_per_taxpayer = sum(b.tax_per_taxpayer for b in comp_burdens) / len(comp_burdens)
+                
+                with col2:
+                    st.metric(
+                        "Comparison Avg\n(Scarsdale, Pelham, Larchmont)",
+                        f"${avg_tax_per_sqft:.2f}/sqft",
+                        f"${avg_tax_per_taxpayer:,.0f}/taxpayer"
+                    )
+                    st.caption("Average of comparison towns")
+                
+                diff_sqft = combined_eastchester.weighted_avg_tax_per_sqft - avg_tax_per_sqft
+                diff_taxpayer = combined_eastchester.weighted_avg_tax_per_taxpayer - avg_tax_per_taxpayer
+                
+                with col3:
+                    st.metric(
+                        "Tax Difference",
+                        f"${diff_sqft:+.2f}/sqft",
+                        f"${diff_taxpayer:+,.0f}/taxpayer"
+                    )
+                    st.caption("Eastchester vs comparison average")
+                
+                # Value for tax dollar
+                eastchester_services = comparison.eastchester.per_resident_cost
+                avg_services = sum(t.per_resident_cost for t in comparison.comparison_towns.values()) / len(comparison.comparison_towns)
+                service_ratio = eastchester_services / avg_services if avg_services > 0 else 0
+                
+                with col4:
+                    st.metric(
+                        "Service Value Ratio",
+                        f"{service_ratio:.2f}x",
+                        f"{((service_ratio - 1) * 100):+.1f}% vs avg"
+                    )
+                    st.caption("Services received per tax dollar")
+            
+            st.divider()
+            
+            # Tax per sqft comparison chart
+            st.subheader("📊 Tax Per Square Foot Comparison")
+            
+            tax_df = pd.DataFrame([
+                {
+                    'Municipality': 'Eastchester Area\n(Combined)',
+                    'Tax per sqft': combined_eastchester.weighted_avg_tax_per_sqft,
+                    'Municipal Tax per sqft': combined_eastchester.weighted_avg_municipal_tax_per_sqft,
+                }
+            ])
+            
+            for muni_key, burden in all_burdens.items():
+                if muni_key in ['scarsdale', 'pelham', 'larchmont']:
+                    tax_df = pd.concat([
+                        tax_df,
+                        pd.DataFrame([{
+                            'Municipality': burden.municipality,
+                            'Tax per sqft': burden.tax_per_sqft,
+                            'Municipal Tax per sqft': burden.municipal_tax_per_sqft,
+                        }])
+                    ], ignore_index=True)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                name='Total Tax per sqft',
+                x=tax_df['Municipality'],
+                y=tax_df['Tax per sqft'],
+                marker_color='#3498db'
+            ))
+            fig.add_trace(go.Bar(
+                name='Municipal Tax per sqft\n(Town+Village only)',
+                x=tax_df['Municipality'],
+                y=tax_df['Municipal Tax per sqft'],
+                marker_color='#e74c3c'
+            ))
+            
+            fig.update_layout(
+                title=f'Property Tax Per Square Foot (${typical_home:,.0f} home, {typical_sqft:,} sqft)',
+                xaxis_title='Municipality',
+                yaxis_title='Tax Per Square Foot ($)',
+                barmode='group',
+                height=500
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Key insight: Tax vs Services
+            st.info(f"""
+            **Key Finding:** Eastchester area residents pay **${abs(diff_sqft):.2f} {'more' if diff_sqft > 0 else 'less'} per sqft** 
+            in property taxes compared to the average of Scarsdale, Pelham, and Larchmont.
+            
+            However, Eastchester provides **{((service_ratio - 1) * 100):+.1f}%** 
+            {'more' if service_ratio > 1 else 'less'} services per resident than the comparison average.
+            
+            **This suggests:** {'Eastchester residents may be paying comparable taxes but receiving fewer services' if service_ratio < 0.9 else 'Eastchester provides good value for tax dollars' if service_ratio > 1.1 else 'Eastchester provides average value for tax dollars'}.
+            """)
+            
+            # Detailed tax breakdown table
+            st.subheader("📋 Detailed Tax Breakdown")
+            
+            detail_tax_df = pd.DataFrame([
+                {
+                    'Municipality': 'Eastchester Area (Combined)',
+                    'Total Tax': combined_eastchester.weighted_avg_tax_per_taxpayer,
+                    'Tax per sqft': combined_eastchester.weighted_avg_tax_per_sqft,
+                    'Municipal Tax': combined_eastchester.weighted_avg_municipal_tax_per_sqft * typical_sqft,
+                    'Municipal Tax per sqft': combined_eastchester.weighted_avg_municipal_tax_per_sqft,
+                    'Services per Resident': comparison.eastchester.per_resident_cost,
+                }
+            ])
+            
+            for muni_key, burden in all_burdens.items():
+                if muni_key in ['scarsdale', 'pelham', 'larchmont']:
+                    town = comparison.comparison_towns.get(muni_key.replace('_', ''), None)
+                    if town:
+                        detail_tax_df = pd.concat([
+                            detail_tax_df,
+                            pd.DataFrame([{
+                                'Municipality': burden.municipality,
+                                'Total Tax': burden.tax_per_taxpayer,
+                                'Tax per sqft': burden.tax_per_sqft,
+                                'Municipal Tax': burden.municipal_tax_per_taxpayer,
+                                'Municipal Tax per sqft': burden.municipal_tax_per_sqft,
+                                'Services per Resident': town.per_resident_cost,
+                            }])
+                        ], ignore_index=True)
+            
+            # Calculate value ratio
+            detail_tax_df['Tax to Services Ratio'] = (
+                detail_tax_df['Municipal Tax per sqft'] / detail_tax_df['Services per Resident'] * 1000
+            ).round(2)
+            
+            # Format for display
+            display_tax_df = detail_tax_df.copy()
+            for col in ['Total Tax', 'Tax per sqft', 'Municipal Tax', 'Municipal Tax per sqft', 'Services per Resident']:
+                if col in display_tax_df.columns:
+                    display_tax_df[col] = display_tax_df[col].apply(lambda x: f"${x:,.2f}" if isinstance(x, (int, float)) else x)
+            
+            st.dataframe(display_tax_df, use_container_width=True, hide_index=True)
+            
+            # Individual municipality breakdown for Eastchester area
+            with st.expander("🏘️ Eastchester Area Individual Municipalities"):
+                st.write("**Breakdown by Municipality:**")
+                for muni_key, burden in combined_eastchester.tax_burdens.items():
+                    st.write(f"**{burden.municipality}:**")
+                    st.write(f"- Total Tax: ${burden.annual_tax:,.0f}/year")
+                    st.write(f"- Tax per sqft: ${burden.tax_per_sqft:.2f}")
+                    st.write(f"- Municipal Tax (Town+Village): ${burden.municipal_tax_only:,.0f}/year")
+                    st.write(f"- Municipal Tax per sqft: ${burden.municipal_tax_per_sqft:.2f}")
+                    st.write(f"- Effective Tax Rate: {burden.effective_rate:.2f}%")
+                    st.write("")
+        
+        except Exception as tax_error:
+            st.warning(f"Could not calculate tax burden analysis: {tax_error}")
+            st.info("Tax burden analysis requires tax rate data from config.py")
+        
     except Exception as e:
         st.warning(f"Could not load town budget data: {e}")
         st.info("""

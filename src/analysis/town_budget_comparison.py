@@ -9,13 +9,102 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import sys
-from typing import List
+from typing import List, Dict
 
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from data_collection.town_budget_scraper import TownBudget, collect_town_budgets
+from models.tax_calculator import TaxCalculator
+
+
+@dataclass
+class TaxBurdenAnalysis:
+    """Tax burden analysis for a municipality."""
+    municipality: str
+    typical_home_value: float
+    typical_sqft: float
+    annual_tax: float
+    tax_per_sqft: float
+    tax_per_taxpayer: float
+    effective_rate: float
+    municipal_tax_only: float  # Town + Village (excluding school)
+    municipal_tax_per_sqft: float
+    municipal_tax_per_taxpayer: float
+    
+    def to_dict(self) -> dict:
+        return {
+            'municipality': self.municipality,
+            'typical_home_value': self.typical_home_value,
+            'typical_sqft': self.typical_sqft,
+            'annual_tax': self.annual_tax,
+            'tax_per_sqft': self.tax_per_sqft,
+            'tax_per_taxpayer': self.tax_per_taxpayer,
+            'effective_rate': self.effective_rate,
+            'municipal_tax_only': self.municipal_tax_only,
+            'municipal_tax_per_sqft': self.municipal_tax_per_sqft,
+            'municipal_tax_per_taxpayer': self.municipal_tax_per_taxpayer,
+        }
+
+
+@dataclass
+class CombinedEastchesterArea:
+    """Combined tax and service analysis for Eastchester area."""
+    municipalities: List[str]  # ['eastchester_unincorp', 'bronxville', 'tuckahoe']
+    tax_burdens: Dict[str, TaxBurdenAnalysis]
+    total_population: int
+    estimated_taxpayers: int  # Estimated number of property taxpayers
+    
+    @property
+    def weighted_avg_tax_per_sqft(self) -> float:
+        """Weighted average tax per sqft across the 3 municipalities."""
+        # Use population as weight
+        total = 0
+        weight = 0
+        for muni_key, burden in self.tax_burdens.items():
+            # Estimate population for each (rough)
+            pop_weights = {
+                'eastchester_unincorp': 20000,
+                'bronxville': 6500,
+                'tuckahoe': 6500,
+            }
+            w = pop_weights.get(muni_key, 10000)
+            total += burden.tax_per_sqft * w
+            weight += w
+        return total / weight if weight > 0 else 0
+    
+    @property
+    def weighted_avg_tax_per_taxpayer(self) -> float:
+        """Weighted average tax per taxpayer."""
+        total = 0
+        weight = 0
+        for muni_key, burden in self.tax_burdens.items():
+            pop_weights = {
+                'eastchester_unincorp': 20000,
+                'bronxville': 6500,
+                'tuckahoe': 6500,
+            }
+            w = pop_weights.get(muni_key, 10000)
+            total += burden.tax_per_taxpayer * w
+            weight += w
+        return total / weight if weight > 0 else 0
+    
+    @property
+    def weighted_avg_municipal_tax_per_sqft(self) -> float:
+        """Weighted average municipal tax (town+village, no school) per sqft."""
+        total = 0
+        weight = 0
+        for muni_key, burden in self.tax_burdens.items():
+            pop_weights = {
+                'eastchester_unincorp': 20000,
+                'bronxville': 6500,
+                'tuckahoe': 6500,
+            }
+            w = pop_weights.get(muni_key, 10000)
+            total += burden.municipal_tax_per_sqft * w
+            weight += w
+        return total / weight if weight > 0 else 0
 
 
 @dataclass
@@ -143,6 +232,111 @@ class BudgetComparison:
                             reverse=True)
         
         return concerns[:5]  # Return top 5
+    
+    def calculate_tax_burdens(self, typical_home_value: float = 1_000_000, typical_sqft: float = 2000) -> Dict[str, TaxBurdenAnalysis]:
+        """
+        Calculate tax burdens for all municipalities.
+        
+        Args:
+            typical_home_value: Typical home value for comparison
+            typical_sqft: Typical square footage
+            
+        Returns:
+            Dict of municipality -> TaxBurdenAnalysis
+        """
+        calc = TaxCalculator()
+        burdens = {}
+        
+        # Calculate for Eastchester area municipalities
+        eastchester_area_munis = ['eastchester_unincorp', 'bronxville', 'tuckahoe']
+        
+        for muni_key in eastchester_area_munis:
+            try:
+                breakdown = calc.calculate_from_market_value(typical_home_value, muni_key)
+                
+                # Estimate taxpayers (roughly 2.5 people per household, 70% own homes)
+                muni = calc.get_municipality(muni_key)
+                population = {
+                    'eastchester_unincorp': 20000,
+                    'bronxville': 6500,
+                    'tuckahoe': 6500,
+                }.get(muni_key, 10000)
+                
+                estimated_taxpayers = int(population * 0.7 / 2.5)  # Rough estimate
+                
+                # Municipal tax = town + village (exclude school, county, fire)
+                municipal_tax = breakdown.town_tax + breakdown.village_tax
+                
+                burdens[muni_key] = TaxBurdenAnalysis(
+                    municipality=muni.name,
+                    typical_home_value=typical_home_value,
+                    typical_sqft=typical_sqft,
+                    annual_tax=breakdown.total,
+                    tax_per_sqft=breakdown.total / typical_sqft,
+                    tax_per_taxpayer=breakdown.total,  # Per property owner
+                    effective_rate=breakdown.effective_rate,
+                    municipal_tax_only=municipal_tax,
+                    municipal_tax_per_sqft=municipal_tax / typical_sqft,
+                    municipal_tax_per_taxpayer=municipal_tax,
+                )
+            except Exception:
+                continue
+        
+        # Calculate for comparison towns
+        comparison_keys = {
+            'scarsdale': 'scarsdale',
+            'pelham': 'pelham',
+            'larchmont': 'larchmont',
+        }
+        
+        for town_name, muni_key in comparison_keys.items():
+            try:
+                breakdown = calc.calculate_from_market_value(typical_home_value, muni_key)
+                
+                town = self.comparison_towns.get(town_name)
+                if not town:
+                    continue
+                
+                population = town.population
+                estimated_taxpayers = int(population * 0.7 / 2.5)
+                
+                municipal_tax = breakdown.town_tax + breakdown.village_tax
+                
+                burdens[muni_key] = TaxBurdenAnalysis(
+                    municipality=town.municipality,
+                    typical_home_value=typical_home_value,
+                    typical_sqft=typical_sqft,
+                    annual_tax=breakdown.total,
+                    tax_per_sqft=breakdown.total / typical_sqft,
+                    tax_per_taxpayer=breakdown.total,
+                    effective_rate=breakdown.effective_rate,
+                    municipal_tax_only=municipal_tax,
+                    municipal_tax_per_sqft=municipal_tax / typical_sqft,
+                    municipal_tax_per_taxpayer=municipal_tax,
+                )
+            except Exception:
+                continue
+        
+        return burdens
+    
+    def get_combined_eastchester_tax_analysis(self, typical_home_value: float = 1_000_000, typical_sqft: float = 2000) -> CombinedEastchesterArea:
+        """Get combined tax analysis for Eastchester area."""
+        burdens = self.calculate_tax_burdens(typical_home_value, typical_sqft)
+        
+        # Filter to Eastchester area
+        eastchester_burdens = {
+            k: v for k, v in burdens.items()
+            if k in ['eastchester_unincorp', 'bronxville', 'tuckahoe']
+        }
+        
+        total_pop = 33000  # Combined population
+        
+        return CombinedEastchesterArea(
+            municipalities=['eastchester_unincorp', 'bronxville', 'tuckahoe'],
+            tax_burdens=eastchester_burdens,
+            total_population=total_pop,
+            estimated_taxpayers=int(total_pop * 0.7 / 2.5),
+        )
     
     def summary(self) -> str:
         """Generate summary report."""
