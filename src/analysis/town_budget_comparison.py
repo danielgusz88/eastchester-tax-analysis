@@ -338,6 +338,144 @@ class BudgetComparison:
             estimated_taxpayers=int(total_pop * 0.7 / 2.5),
         )
     
+    def analyze_municipal_tax_efficiency(self, typical_home_value: float = 1_000_000, typical_sqft: float = 2000) -> Dict:
+        """
+        Analyze municipal tax efficiency: services received per dollar of municipal tax.
+        
+        Returns comprehensive analysis comparing municipal tax rates vs service levels.
+        """
+        burdens = self.calculate_tax_burdens(typical_home_value, typical_sqft)
+        combined_eastchester = self.get_combined_eastchester_tax_analysis(typical_home_value, typical_sqft)
+        
+        analysis = {
+            'eastchester_area': {
+                'municipal_tax_per_sqft': combined_eastchester.weighted_avg_municipal_tax_per_sqft,
+                'municipal_tax_per_taxpayer': combined_eastchester.weighted_avg_municipal_tax_per_taxpayer * (typical_sqft / 2000),  # Normalize
+                'services_per_resident': self.eastchester.per_resident_cost,
+                'municipal_tax_efficiency': 0.0,  # Services per dollar of municipal tax
+                'municipal_tax_rate': 0.0,  # Municipal tax as % of total tax
+            },
+            'comparison_towns': {},
+        }
+        
+        # Calculate efficiency for Eastchester area
+        # Efficiency = services per resident / municipal tax per resident
+        # We need to estimate municipal tax per resident (not per taxpayer)
+        # Rough estimate: municipal_tax_per_taxpayer * (taxpayers / population)
+        eastchester_taxpayers = combined_eastchester.estimated_taxpayers
+        eastchester_pop = combined_eastchester.total_population
+        municipal_tax_per_resident = (combined_eastchester.weighted_avg_municipal_tax_per_taxpayer * 
+                                      (eastchester_taxpayers / eastchester_pop) if eastchester_pop > 0 else 0)
+        
+        if municipal_tax_per_resident > 0:
+            analysis['eastchester_area']['municipal_tax_efficiency'] = (
+                self.eastchester.per_resident_cost / municipal_tax_per_resident
+            )
+        
+        # Calculate for comparison towns
+        for town_name, town_budget in self.comparison_towns.items():
+            burden = burdens.get(town_name)
+            if not burden:
+                continue
+            
+            # Estimate taxpayers and municipal tax per resident
+            town_taxpayers = int(town_budget.population * 0.7 / 2.5)
+            municipal_tax_per_resident_town = (burden.municipal_tax_per_taxpayer * 
+                                                (town_taxpayers / town_budget.population) 
+                                                if town_budget.population > 0 else 0)
+            
+            efficiency = 0.0
+            if municipal_tax_per_resident_town > 0:
+                efficiency = town_budget.per_resident_cost / municipal_tax_per_resident_town
+            
+            # Calculate municipal tax as % of total tax
+            municipal_tax_pct = 0.0
+            if burden.annual_tax > 0:
+                municipal_tax_pct = (burden.municipal_tax_only / burden.annual_tax) * 100
+            
+            analysis['comparison_towns'][town_name] = {
+                'municipality': town_budget.municipality,
+                'municipal_tax_per_sqft': burden.municipal_tax_per_sqft,
+                'municipal_tax_per_taxpayer': burden.municipal_tax_per_taxpayer,
+                'municipal_tax_per_resident': municipal_tax_per_resident_town,
+                'services_per_resident': town_budget.per_resident_cost,
+                'municipal_tax_efficiency': efficiency,
+                'municipal_tax_rate': municipal_tax_pct,
+                'total_tax_per_sqft': burden.tax_per_sqft,
+                'total_tax_per_taxpayer': burden.tax_per_taxpayer,
+            }
+        
+        # Calculate averages for comparison
+        if analysis['comparison_towns']:
+            comp_towns = list(analysis['comparison_towns'].values())
+            analysis['comparison_averages'] = {
+                'municipal_tax_per_sqft': sum(t['municipal_tax_per_sqft'] for t in comp_towns) / len(comp_towns),
+                'municipal_tax_per_resident': sum(t['municipal_tax_per_resident'] for t in comp_towns) / len(comp_towns),
+                'services_per_resident': sum(t['services_per_resident'] for t in comp_towns) / len(comp_towns),
+                'municipal_tax_efficiency': sum(t['municipal_tax_efficiency'] for t in comp_towns) / len(comp_towns),
+            }
+        
+        return analysis
+    
+    def find_municipal_tax_concerns(self, typical_home_value: float = 1_000_000, typical_sqft: float = 2000) -> List[dict]:
+        """
+        Find concerns about municipal tax rates vs services provided.
+        
+        Identifies if Eastchester charges similar municipal taxes but provides fewer services.
+        """
+        analysis = self.analyze_municipal_tax_efficiency(typical_home_value, typical_sqft)
+        concerns = []
+        
+        eastchester = analysis['eastchester_area']
+        comp_avg = analysis.get('comparison_averages', {})
+        
+        if not comp_avg:
+            return concerns
+        
+        # Concern 1: Municipal tax per sqft vs services
+        if eastchester['municipal_tax_per_sqft'] > comp_avg['municipal_tax_per_sqft'] * 0.9:  # Within 10%
+            if eastchester['services_per_resident'] < comp_avg['services_per_resident'] * 0.8:  # 20% less services
+                concerns.append({
+                    'category': 'Municipal Tax Value',
+                    'issue': 'Paying similar municipal tax but receiving fewer services',
+                    'eastchester_municipal_tax_per_sqft': f"${eastchester['municipal_tax_per_sqft']:.2f}",
+                    'comparison_avg_municipal_tax_per_sqft': f"${comp_avg['municipal_tax_per_sqft']:.2f}",
+                    'eastchester_services': f"${eastchester['services_per_resident']:.2f}/resident",
+                    'comparison_avg_services': f"${comp_avg['services_per_resident']:.2f}/resident",
+                    'efficiency_difference': f"{((comp_avg['municipal_tax_efficiency'] / eastchester['municipal_tax_efficiency']) - 1) * 100:.1f}%",
+                    'impact': 'Residents pay comparable municipal taxes but receive significantly fewer services per tax dollar',
+                    'severity': 'high'
+                })
+        
+        # Concern 2: Low efficiency ratio
+        if eastchester['municipal_tax_efficiency'] < comp_avg['municipal_tax_efficiency'] * 0.85:
+            concerns.append({
+                'category': 'Tax Efficiency',
+                'issue': 'Lower municipal tax efficiency (services per tax dollar)',
+                'eastchester_efficiency': f"{eastchester['municipal_tax_efficiency']:.2f}x",
+                'comparison_avg_efficiency': f"{comp_avg['municipal_tax_efficiency']:.2f}x",
+                'difference': f"{comp_avg['municipal_tax_efficiency'] - eastchester['municipal_tax_efficiency']:.2f}x less efficient",
+                'percentage': f"{((comp_avg['municipal_tax_efficiency'] / eastchester['municipal_tax_efficiency']) - 1) * 100:.1f}% below average",
+                'impact': 'Each dollar of municipal tax provides fewer services compared to other towns',
+                'severity': 'high'
+            })
+        
+        # Concern 3: High municipal tax rate but low services
+        if eastchester['municipal_tax_per_sqft'] > comp_avg['municipal_tax_per_sqft'] * 1.1:
+            if eastchester['services_per_resident'] < comp_avg['services_per_resident']:
+                concerns.append({
+                    'category': 'Tax Rate vs Services',
+                    'issue': 'Higher municipal tax rate but lower service levels',
+                    'eastchester_municipal_tax': f"${eastchester['municipal_tax_per_sqft']:.2f}/sqft",
+                    'comparison_avg_municipal_tax': f"${comp_avg['municipal_tax_per_sqft']:.2f}/sqft",
+                    'tax_difference': f"${eastchester['municipal_tax_per_sqft'] - comp_avg['municipal_tax_per_sqft']:.2f} more per sqft",
+                    'services_difference': f"${comp_avg['services_per_resident'] - eastchester['services_per_resident']:.2f} less services per resident",
+                    'impact': 'Residents pay more in municipal taxes but receive less in services',
+                    'severity': 'high'
+                })
+        
+        return concerns
+    
     def summary(self) -> str:
         """Generate summary report."""
         concerns = self.find_concerns()

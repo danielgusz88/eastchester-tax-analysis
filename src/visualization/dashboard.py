@@ -805,6 +805,227 @@ def render_town_budget_comparison():
                     st.write(f"- Municipal Tax per sqft: ${burden.municipal_tax_per_sqft:.2f}")
                     st.write(f"- Effective Tax Rate: {burden.effective_rate:.2f}%")
                     st.write("")
+            
+            st.divider()
+            
+            # =====================================================================
+            # DEEP MUNICIPAL TAX ANALYSIS
+            # =====================================================================
+            st.subheader("🔍 Deep Analysis: Municipal Tax vs Services")
+            st.write("Comparing municipal tax rates (town+village only) against services and budgets provided")
+            
+            try:
+                # Get detailed efficiency analysis
+                efficiency_analysis = comparison.analyze_municipal_tax_efficiency(typical_home, typical_sqft)
+                municipal_concerns = comparison.find_municipal_tax_concerns(typical_home, typical_sqft)
+                
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                eastchester_eff = efficiency_analysis['eastchester_area']
+                comp_avg = efficiency_analysis.get('comparison_averages', {})
+                
+                with col1:
+                    st.metric(
+                        "Eastchester Area\nMunicipal Tax per sqft",
+                        f"${eastchester_eff['municipal_tax_per_sqft']:.2f}",
+                        f"{((eastchester_eff['municipal_tax_per_sqft'] / comp_avg.get('municipal_tax_per_sqft', 1)) - 1) * 100:+.1f}% vs avg" if comp_avg.get('municipal_tax_per_sqft') else ""
+                    )
+                
+                with col2:
+                    st.metric(
+                        "Eastchester Area\nServices per Resident",
+                        f"${eastchester_eff['services_per_resident']:.2f}",
+                        f"{((eastchester_eff['services_per_resident'] / comp_avg.get('services_per_resident', 1)) - 1) * 100:+.1f}% vs avg" if comp_avg.get('services_per_resident') else ""
+                    )
+                
+                with col3:
+                    efficiency_ratio = eastchester_eff['municipal_tax_efficiency']
+                    avg_efficiency = comp_avg.get('municipal_tax_efficiency', 0)
+                    st.metric(
+                        "Tax Efficiency\n(Services per $1 municipal tax)",
+                        f"{efficiency_ratio:.2f}x",
+                        f"{((efficiency_ratio / avg_efficiency) - 1) * 100:+.1f}% vs avg" if avg_efficiency > 0 else ""
+                    )
+                    st.caption("Higher = better value")
+                
+                with col4:
+                    if municipal_concerns:
+                        st.metric(
+                            "Key Concerns",
+                            len(municipal_concerns),
+                            "Issues identified"
+                        )
+                    else:
+                        st.metric(
+                            "Status",
+                            "✅ Good",
+                            "No major concerns"
+                        )
+                
+                # Municipal tax efficiency concerns
+                if municipal_concerns:
+                    st.subheader("⚠️ Municipal Tax Value Concerns")
+                    for i, concern in enumerate(municipal_concerns, 1):
+                        severity_color = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}.get(concern.get('severity', 'medium'), '🟡')
+                        
+                        with st.expander(f"{severity_color} {i}. {concern['category']}: {concern['issue']}", expanded=True):
+                            col_a, col_b = st.columns(2)
+                            
+                            with col_a:
+                                st.write("**Municipal Tax Rates:**")
+                                st.write(f"- Eastchester: {concern.get('eastchester_municipal_tax_per_sqft', 'N/A')}/sqft")
+                                st.write(f"- Comparison Avg: {concern.get('comparison_avg_municipal_tax_per_sqft', 'N/A')}/sqft")
+                                if 'tax_difference' in concern:
+                                    st.write(f"- Difference: {concern['tax_difference']}")
+                            
+                            with col_b:
+                                st.write("**Services Provided:**")
+                                st.write(f"- Eastchester: {concern.get('eastchester_services', 'N/A')}/resident")
+                                st.write(f"- Comparison Avg: {concern.get('comparison_avg_services', 'N/A')}/resident")
+                                if 'services_difference' in concern:
+                                    st.write(f"- Difference: {concern['services_difference']}")
+                            
+                            st.write("")
+                            st.write(f"**Impact:** {concern['impact']}")
+                            if 'efficiency_difference' in concern:
+                                st.write(f"**Efficiency Difference:** {concern['efficiency_difference']}")
+                
+                # Municipal tax vs services scatter plot
+                st.subheader("📊 Municipal Tax Rate vs Services Provided")
+                
+                scatter_data = []
+                
+                # Add Eastchester area
+                scatter_data.append({
+                    'Municipality': 'Eastchester Area\n(Combined)',
+                    'Municipal Tax per sqft': eastchester_eff['municipal_tax_per_sqft'],
+                    'Services per Resident': eastchester_eff['services_per_resident'],
+                    'Efficiency': eastchester_eff['municipal_tax_efficiency'],
+                    'Type': 'Eastchester Area'
+                })
+                
+                # Add comparison towns
+                for town_name, town_data in efficiency_analysis['comparison_towns'].items():
+                    scatter_data.append({
+                        'Municipality': town_data['municipality'],
+                        'Municipal Tax per sqft': town_data['municipal_tax_per_sqft'],
+                        'Services per Resident': town_data['services_per_resident'],
+                        'Efficiency': town_data['municipal_tax_efficiency'],
+                        'Type': 'Comparison Town'
+                    })
+                
+                scatter_df = pd.DataFrame(scatter_data)
+                
+                fig = px.scatter(
+                    scatter_df,
+                    x='Municipal Tax per sqft',
+                    y='Services per Resident',
+                    size='Efficiency',
+                    color='Type',
+                    hover_name='Municipality',
+                    hover_data=['Efficiency'],
+                    title='Municipal Tax Rate vs Services: Value Analysis',
+                    labels={
+                        'Municipal Tax per sqft': 'Municipal Tax per sqft ($)',
+                        'Services per Resident': 'Services per Resident ($)',
+                        'Efficiency': 'Efficiency (Services per $1 tax)'
+                    },
+                    color_discrete_map={
+                        'Eastchester Area': '#3498db',
+                        'Comparison Town': '#e74c3c'
+                    }
+                )
+                fig.update_layout(height=500)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Interpretation
+                st.info("""
+                **Chart Interpretation:**
+                - **X-axis**: Municipal tax per sqft (what residents pay)
+                - **Y-axis**: Services per resident (what residents receive)
+                - **Bubble size**: Efficiency ratio (larger = better value)
+                - **Ideal position**: Upper left (low tax, high services) = best value
+                - **Worst position**: Lower right (high tax, low services) = poor value
+                """)
+                
+                # Detailed efficiency table
+                st.subheader("📋 Municipal Tax Efficiency Comparison")
+                
+                efficiency_df = pd.DataFrame([
+                    {
+                        'Municipality': 'Eastchester Area (Combined)',
+                        'Municipal Tax per sqft': eastchester_eff['municipal_tax_per_sqft'],
+                        'Municipal Tax per Taxpayer': eastchester_eff['municipal_tax_per_taxpayer'],
+                        'Services per Resident': eastchester_eff['services_per_resident'],
+                        'Efficiency Ratio': eastchester_eff['municipal_tax_efficiency'],
+                        'Municipal Tax % of Total': eastchester_eff.get('municipal_tax_rate', 0),
+                    }
+                ])
+                
+                for town_name, town_data in efficiency_analysis['comparison_towns'].items():
+                    efficiency_df = pd.concat([
+                        efficiency_df,
+                        pd.DataFrame([{
+                            'Municipality': town_data['municipality'],
+                            'Municipal Tax per sqft': town_data['municipal_tax_per_sqft'],
+                            'Municipal Tax per Taxpayer': town_data['municipal_tax_per_taxpayer'],
+                            'Services per Resident': town_data['services_per_resident'],
+                            'Efficiency Ratio': town_data['municipal_tax_efficiency'],
+                            'Municipal Tax % of Total': town_data['municipal_tax_rate'],
+                        }])
+                    ], ignore_index=True)
+                
+                # Add comparison average row
+                if comp_avg:
+                    efficiency_df = pd.concat([
+                        efficiency_df,
+                        pd.DataFrame([{
+                            'Municipality': '**Comparison Average**',
+                            'Municipal Tax per sqft': comp_avg['municipal_tax_per_sqft'],
+                            'Municipal Tax per Taxpayer': comp_avg.get('municipal_tax_per_resident', 0) * (typical_sqft / 2000),
+                            'Services per Resident': comp_avg['services_per_resident'],
+                            'Efficiency Ratio': comp_avg['municipal_tax_efficiency'],
+                            'Municipal Tax % of Total': 0,
+                        }])
+                    ], ignore_index=True)
+                
+                # Format for display
+                display_eff_df = efficiency_df.copy()
+                for col in ['Municipal Tax per sqft', 'Municipal Tax per Taxpayer', 'Services per Resident']:
+                    if col in display_eff_df.columns:
+                        display_eff_df[col] = display_eff_df[col].apply(lambda x: f"${x:,.2f}" if isinstance(x, (int, float)) and x > 0 else x)
+                
+                display_eff_df['Efficiency Ratio'] = display_eff_df['Efficiency Ratio'].apply(lambda x: f"{x:.2f}x" if isinstance(x, (int, float)) and x > 0 else x)
+                display_eff_df['Municipal Tax % of Total'] = display_eff_df['Municipal Tax % of Total'].apply(lambda x: f"{x:.1f}%" if isinstance(x, (int, float)) and x > 0 else x)
+                
+                st.dataframe(display_eff_df, use_container_width=True, hide_index=True)
+                
+                # Key insights
+                st.subheader("💡 Key Insights")
+                
+                if eastchester_eff['municipal_tax_efficiency'] < comp_avg.get('municipal_tax_efficiency', 1) * 0.9:
+                    st.warning(f"""
+                    **⚠️ Lower Efficiency:** Eastchester area provides **{((comp_avg.get('municipal_tax_efficiency', 1) / eastchester_eff['municipal_tax_efficiency']) - 1) * 100:.1f}% less** 
+                    services per dollar of municipal tax compared to the average of comparison towns.
+                    
+                    This suggests residents are paying similar municipal tax rates but receiving fewer services.
+                    """)
+                elif eastchester_eff['municipal_tax_efficiency'] > comp_avg.get('municipal_tax_efficiency', 1) * 1.1:
+                    st.success(f"""
+                    **✅ Higher Efficiency:** Eastchester area provides **{((eastchester_eff['municipal_tax_efficiency'] / comp_avg.get('municipal_tax_efficiency', 1)) - 1) * 100:.1f}% more** 
+                    services per dollar of municipal tax compared to the average.
+                    
+                    This suggests good value for municipal tax dollars.
+                    """)
+                else:
+                    st.info("""
+                    **ℹ️ Average Efficiency:** Eastchester area provides services at a level comparable to other towns 
+                    relative to municipal tax rates.
+                    """)
+                
+            except Exception as eff_error:
+                st.warning(f"Could not calculate efficiency analysis: {eff_error}")
         
         except Exception as tax_error:
             st.warning(f"Could not calculate tax burden analysis: {tax_error}")
