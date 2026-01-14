@@ -14,12 +14,12 @@ plotly>=5.18.0
 # Dashboard
 streamlit>=1.29.0
 
+# Data collection (needed for imports)
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
 # Utilities
 python-dateutil>=2.8.0
-
-# Optional (for data collection, not needed for dashboard)
-# requests>=2.31.0
-# beautifulsoup4>=4.12.0
-# pydantic>=2.5.0
 
 
