@@ -1,0 +1,25 @@
+# Eastchester Tax & Value Analysis Model
+# Core dependencies for Streamlit Cloud deployment
+
+# Data manipulation
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+
+# Visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.18.0
+
+# Dashboard
+streamlit>=1.29.0
+
+# Utilities
+python-dateutil>=2.8.0
+
+# Optional (for data collection, not needed for dashboard)
+# requests>=2.31.0
+# beautifulsoup4>=4.12.0
+# pydantic>=2.5.0
+
+
