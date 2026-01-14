@@ -761,7 +761,13 @@ def render_town_budget_comparison():
             
             for muni_key, burden in all_burdens.items():
                 if muni_key in ['scarsdale', 'pelham', 'larchmont']:
-                    town = comparison.comparison_towns.get(muni_key.replace('_', ''), None)
+                    # Map tax burden keys to comparison_towns keys
+                    town_key_map = {
+                        'scarsdale': 'scarsdale',
+                        'pelham': 'pelham',
+                        'larchmont': 'larchmont',
+                    }
+                    town = comparison.comparison_towns.get(town_key_map.get(muni_key, muni_key), None)
                     if town:
                         detail_tax_df = pd.concat([
                             detail_tax_df,
