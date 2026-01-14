@@ -26,6 +26,7 @@ from data_collection.data_loader import DataLoader
 from analysis.comparison import ComparisonEngine
 from analysis.fire_comparison import compare_fire_departments, load_fire_budgets
 from analysis.school_comparison import compare_school_districts, load_school_budgets
+from analysis.town_budget_comparison import compare_town_budgets
 from visualization.map_view import create_combined_map
 
 
@@ -433,6 +434,193 @@ def render_efficiency_analysis(report):
         )
 
 
+def render_town_budget_comparison():
+    """Render town budget comparison with concerns analysis."""
+    st.subheader("🏛️ Town Budget Comparison")
+    st.write("Comparing Eastchester town budget against Scarsdale, Pelham, and Larchmont")
+    
+    try:
+        comparison = compare_town_budgets()
+        concerns = comparison.find_concerns()
+        
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Eastchester",
+                f"${comparison.eastchester.per_resident_cost:,.0f}/resident",
+                f"${comparison.eastchester.total_budget:,.0f} total"
+            )
+        
+        avg_comp = sum(t.per_resident_cost for t in comparison.comparison_towns.values()) / len(comparison.comparison_towns)
+        diff = comparison.eastchester.per_resident_cost - avg_comp
+        
+        with col2:
+            st.metric(
+                "Comparison Avg",
+                f"${avg_comp:,.0f}/resident",
+                f"{'+' if diff > 0 else ''}${diff:,.0f} vs Eastchester"
+            )
+        
+        with col3:
+            st.metric(
+                "Key Concerns",
+                len(concerns),
+                "Areas of concern identified"
+            )
+        
+        with col4:
+            high_severity = sum(1 for c in concerns if c.get('severity') == 'high')
+            st.metric(
+                "High Severity",
+                high_severity,
+                "Critical issues"
+            )
+        
+        st.divider()
+        
+        # Top 5 Concerns
+        st.subheader("⚠️ Top 5 Concerns for Eastchester Residents")
+        st.write("Based on comparison with Scarsdale, Pelham, and Larchmont")
+        
+        for i, concern in enumerate(concerns, 1):
+            severity_color = {
+                'high': '🔴',
+                'medium': '🟡',
+                'low': '🟢'
+            }.get(concern.get('severity', 'medium'), '🟡')
+            
+            with st.expander(f"{severity_color} {i}. {concern['category']}: {concern['issue']}", expanded=(i <= 2)):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**Eastchester:** {concern['eastchester']}")
+                    st.write(f"**Comparison Average:** {concern['comparison_avg']}")
+                    st.write(f"**Difference:** {concern['difference']}")
+                    st.write(f"**Percentage:** {concern['percentage']}")
+                
+                with col2:
+                    st.write(f"**Impact:**")
+                    st.info(concern['impact'])
+                    st.write(f"**Severity:** {concern['severity'].upper()}")
+        
+        st.divider()
+        
+        # Budget breakdown comparison
+        st.subheader("📊 Budget Category Comparison")
+        
+        # Create comparison chart
+        categories = ['Public Safety', 'Public Works', 'Parks & Recreation', 'Administration']
+        eastchester_data = [
+            comparison.eastchester.per_resident_public_safety,
+            comparison.eastchester.per_resident_public_works,
+            comparison.eastchester.per_resident_parks,
+            comparison.eastchester.per_resident_admin,
+        ]
+        
+        avg_data = []
+        for cat in categories:
+            if cat == 'Public Safety':
+                avg = sum(t.per_resident_public_safety for t in comparison.comparison_towns.values()) / len(comparison.comparison_towns)
+            elif cat == 'Public Works':
+                avg = sum(t.per_resident_public_works for t in comparison.comparison_towns.values()) / len(comparison.comparison_towns)
+            elif cat == 'Parks & Recreation':
+                avg = sum(t.per_resident_parks for t in comparison.comparison_towns.values()) / len(comparison.comparison_towns)
+            else:  # Administration
+                avg = sum(t.per_resident_admin for t in comparison.comparison_towns.values()) / len(comparison.comparison_towns)
+            avg_data.append(avg)
+        
+        df = pd.DataFrame({
+            'Category': categories,
+            'Eastchester': eastchester_data,
+            'Comparison Average': avg_data,
+        })
+        
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            name='Eastchester',
+            x=df['Category'],
+            y=df['Eastchester'],
+            marker_color='#3498db'
+        ))
+        fig.add_trace(go.Bar(
+            name='Comparison Average',
+            x=df['Category'],
+            y=df['Comparison Average'],
+            marker_color='#e74c3c'
+        ))
+        
+        fig.update_layout(
+            title='Per-Resident Spending by Category',
+            xaxis_title='Category',
+            yaxis_title='Cost Per Resident ($)',
+            barmode='group',
+            height=500
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Detailed table
+        with st.expander("📋 Detailed Budget Breakdown"):
+            detail_df = pd.DataFrame([
+                {
+                    'Municipality': 'Eastchester',
+                    'Total Budget': comparison.eastchester.total_budget,
+                    'Population': comparison.eastchester.population,
+                    'Per Resident': comparison.eastchester.per_resident_cost,
+                    'Public Safety': comparison.eastchester.per_resident_public_safety,
+                    'Public Works': comparison.eastchester.per_resident_public_works,
+                    'Parks/Rec': comparison.eastchester.per_resident_parks,
+                    'Administration': comparison.eastchester.per_resident_admin,
+                }
+            ])
+            
+            for name, town in comparison.comparison_towns.items():
+                detail_df = pd.concat([
+                    detail_df,
+                    pd.DataFrame([{
+                        'Municipality': name.title(),
+                        'Total Budget': town.total_budget,
+                        'Population': town.population,
+                        'Per Resident': town.per_resident_cost,
+                        'Public Safety': town.per_resident_public_safety,
+                        'Public Works': town.per_resident_public_works,
+                        'Parks/Rec': town.per_resident_parks,
+                        'Administration': town.per_resident_admin,
+                    }])
+                ], ignore_index=True)
+            
+            # Format for display
+            display_df = detail_df.copy()
+            for col in ['Total Budget', 'Per Resident', 'Public Safety', 'Public Works', 'Parks/Rec', 'Administration']:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}" if isinstance(x, (int, float)) else x)
+            display_df['Population'] = display_df['Population'].apply(lambda x: f"{x:,}" if isinstance(x, (int, float)) else x)
+            
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Data source
+        st.caption(f"📅 Data collected: {comparison.eastchester.collection_date}")
+        st.caption(f"📊 Sources: Municipal budgets and websites")
+        
+    except Exception as e:
+        st.warning(f"Could not load town budget data: {e}")
+        st.info("""
+        **Note:** Town budget data is being collected from municipal websites.
+        
+        This analysis compares:
+        - **Eastchester** (Town) - unincorporated area
+        - **Scarsdale** (Village/Town)
+        - **Pelham** (Town)
+        - **Larchmont** (Village)
+        
+        The comparison identifies areas where Eastchester may be spending less
+        or more than comparable municipalities, which could indicate service
+        level differences or efficiency issues.
+        """)
+
+
 def render_school_comparison():
     """Render school district budget comparison."""
     st.subheader("🎓 School District Budget Comparison")
@@ -824,8 +1012,8 @@ def create_dashboard():
     st.divider()
     
     # Main tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "🗺️ Map", "📊 Comparison", "🧮 Calculator", "⚡ Efficiency", "🔥 Fire Dept", "🎓 Schools", "📋 Data"
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        "🗺️ Map", "📊 Comparison", "🧮 Calculator", "⚡ Efficiency", "🔥 Fire Dept", "🎓 Schools", "🏛️ Town Budget", "📋 Data"
     ])
     
     with tab1:
@@ -857,6 +1045,9 @@ def create_dashboard():
         render_school_comparison()
     
     with tab7:
+        render_town_budget_comparison()
+    
+    with tab8:
         render_data_table(report)
     
     # Footer
