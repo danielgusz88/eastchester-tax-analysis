@@ -24,6 +24,7 @@ from models.tax_calculator import TaxCalculator
 from models.metrics import MetricsCalculator
 from data_collection.data_loader import DataLoader
 from analysis.comparison import ComparisonEngine
+from analysis.fire_comparison import compare_fire_departments, load_fire_budgets
 from visualization.map_view import create_combined_map
 
 
@@ -431,6 +432,119 @@ def render_efficiency_analysis(report):
         )
 
 
+def render_fire_comparison():
+    """Render fire department budget comparison."""
+    st.subheader("🔥 Fire Department Budget Comparison")
+    st.write("Comparing per-resident fire department costs: Eastchester vs Scarsdale")
+    
+    try:
+        comparison = compare_fire_departments()
+        
+        # Create comparison chart
+        df = pd.DataFrame([
+            {
+                'Department': 'Eastchester FD',
+                'Total Budget': comparison.eastchester_budget.total_budget,
+                'Population': comparison.eastchester_budget.population,
+                'Per Resident': comparison.eastchester_budget.per_resident_cost,
+                'Coverage': comparison.eastchester_budget.coverage_area,
+            },
+            {
+                'Department': 'Scarsdale FD',
+                'Total Budget': comparison.scarsdale_budget.total_budget,
+                'Population': comparison.scarsdale_budget.population,
+                'Per Resident': comparison.scarsdale_budget.per_resident_cost,
+                'Coverage': comparison.scarsdale_budget.coverage_area,
+            }
+        ])
+        
+        # Side-by-side comparison
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric(
+                "Eastchester FD Budget",
+                f"${comparison.eastchester_budget.total_budget:,.0f}",
+                f"${comparison.eastchester_budget.per_resident_cost:.2f}/resident"
+            )
+            st.caption(f"Coverage: {comparison.eastchester_budget.coverage_area}")
+            st.caption(f"Population: {comparison.eastchester_budget.population:,}")
+        
+        with col2:
+            st.metric(
+                "Scarsdale FD Budget",
+                f"${comparison.scarsdale_budget.total_budget:,.0f}",
+                f"${comparison.scarsdale_budget.per_resident_cost:.2f}/resident"
+            )
+            st.caption(f"Coverage: {comparison.scarsdale_budget.coverage_area}")
+            st.caption(f"Population: {comparison.scarsdale_budget.population:,}")
+        
+        # Per resident comparison chart
+        fig = px.bar(
+            df,
+            x='Department',
+            y='Per Resident',
+            color='Department',
+            title='Fire Department Cost Per Resident',
+            labels={'Per Resident': 'Cost Per Resident ($)'},
+            color_discrete_map={
+                'Eastchester FD': '#3498db',
+                'Scarsdale FD': '#e74c3c'
+            }
+        )
+        fig.update_layout(showlegend=False, height=400)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Key findings
+        st.info(f"""
+        **Key Finding:** {'Scarsdale' if comparison.per_resident_difference > 0 else 'Eastchester'} spends 
+        **${abs(comparison.per_resident_difference):.2f} more per resident** on fire services.
+        
+        **Difference:** {abs(comparison.per_resident_difference_pct):.1f}% 
+        ({'+' if comparison.per_resident_difference > 0 else ''}{comparison.per_resident_difference_pct:.1f}%)
+        """)
+        
+        # Detailed breakdown
+        with st.expander("📊 Detailed Breakdown"):
+            st.write("**Eastchester Fire Department:**")
+            st.write(f"- Total Budget: ${comparison.eastchester_budget.total_budget:,.0f}")
+            st.write(f"- Population Served: {comparison.eastchester_budget.population:,}")
+            st.write(f"- Per Resident: ${comparison.eastchester_budget.per_resident_cost:.2f}")
+            st.write(f"- Coverage: {comparison.eastchester_budget.coverage_area}")
+            st.write(f"- Fiscal Year: {comparison.eastchester_budget.fiscal_year}")
+            
+            st.write("")
+            st.write("**Scarsdale Fire Department:**")
+            st.write(f"- Total Budget: ${comparison.scarsdale_budget.total_budget:,.0f}")
+            st.write(f"- Population Served: {comparison.scarsdale_budget.population:,}")
+            st.write(f"- Per Resident: ${comparison.scarsdale_budget.per_resident_cost:.2f}")
+            st.write(f"- Coverage: {comparison.scarsdale_budget.coverage_area}")
+            st.write(f"- Fiscal Year: {comparison.scarsdale_budget.fiscal_year}")
+            
+            st.write("")
+            st.write("**Comparison:**")
+            st.write(f"- Per Resident Difference: ${comparison.per_resident_difference:,.2f}")
+            st.write(f"- Percentage Difference: {comparison.per_resident_difference_pct:+.1f}%")
+            st.write(f"- Total Budget Difference: ${comparison.total_budget_difference:,.0f}")
+        
+        # Data source
+        st.caption(f"📅 Data collected: {comparison.eastchester_budget.collection_date}")
+        st.caption(f"📊 Sources: {comparison.eastchester_budget.data_source}, {comparison.scarsdale_budget.data_source}")
+        
+    except Exception as e:
+        st.warning(f"Could not load fire department budget data: {e}")
+        st.info("""
+        **Note:** Fire department budget data is being collected from municipal websites.
+        The Eastchester Fire Department covers:
+        - Eastchester (unincorporated)
+        - Tuckahoe
+        - Bronxville
+        
+        This shared service model may result in different per-resident costs compared to 
+        municipalities with dedicated fire departments.
+        """)
+
+
 def render_insights(report):
     """Render key insights section."""
     st.subheader("💡 Key Insights")
@@ -544,8 +658,8 @@ def create_dashboard():
     st.divider()
     
     # Main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🗺️ Map", "📊 Comparison", "🧮 Calculator", "⚡ Efficiency", "📋 Data"
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "🗺️ Map", "📊 Comparison", "🧮 Calculator", "⚡ Efficiency", "🔥 Fire Dept", "📋 Data"
     ])
     
     with tab1:
@@ -559,7 +673,7 @@ def create_dashboard():
         st.divider()
         render_insights(report)
     
-    with tab2:
+    with tab3:
         render_tax_calculator(
             controls['home_value'],
             controls['sqft'],
@@ -567,10 +681,13 @@ def create_dashboard():
         )
         render_tax_breakdown(controls['home_value'], controls['selected_munis'])
     
-    with tab3:
+    with tab4:
         render_efficiency_analysis(report)
     
-    with tab4:
+    with tab5:
+        render_fire_comparison()
+    
+    with tab6:
         render_data_table(report)
     
     # Footer
