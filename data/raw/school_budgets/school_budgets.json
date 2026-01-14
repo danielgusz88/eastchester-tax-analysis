@@ -1,0 +1,46 @@
+{
+  "eastchester": {
+    "district_name": "Eastchester UFSD",
+    "municipality": "Eastchester (unincorporated)",
+    "fiscal_year": "2024-2025",
+    "total_budget": 75000000,
+    "enrollment": 3200,
+    "per_student_cost": 23437.50,
+    "data_source": "Eastchester UFSD Budget (estimated)",
+    "collection_date": "2026-01-14",
+    "notes": "Covers Eastchester unincorporated area only"
+  },
+  "bronxville": {
+    "district_name": "Bronxville UFSD",
+    "municipality": "Bronxville",
+    "fiscal_year": "2024-2025",
+    "total_budget": 45000000,
+    "enrollment": 1650,
+    "per_student_cost": 27272.73,
+    "data_source": "Bronxville UFSD Budget (estimated)",
+    "collection_date": "2026-01-14",
+    "notes": "Covers Bronxville village only"
+  },
+  "tuckahoe": {
+    "district_name": "Tuckahoe UFSD",
+    "municipality": "Tuckahoe",
+    "fiscal_year": "2024-2025",
+    "total_budget": 28000000,
+    "enrollment": 1100,
+    "per_student_cost": 25454.55,
+    "data_source": "Tuckahoe UFSD Budget (estimated)",
+    "collection_date": "2026-01-14",
+    "notes": "Covers Tuckahoe village only"
+  },
+  "scarsdale": {
+    "district_name": "Scarsdale UFSD",
+    "municipality": "Scarsdale",
+    "fiscal_year": "2024-2025",
+    "total_budget": 180000000,
+    "enrollment": 4800,
+    "per_student_cost": 37500.00,
+    "data_source": "Scarsdale UFSD Budget (estimated)",
+    "collection_date": "2026-01-14",
+    "notes": "Covers Scarsdale village only"
+  }
+}

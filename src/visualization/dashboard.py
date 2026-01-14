@@ -25,6 +25,7 @@ from models.metrics import MetricsCalculator
 from data_collection.data_loader import DataLoader
 from analysis.comparison import ComparisonEngine
 from analysis.fire_comparison import compare_fire_departments, load_fire_budgets
+from analysis.school_comparison import compare_school_districts, load_school_budgets
 from visualization.map_view import create_combined_map
 
 
@@ -432,6 +433,171 @@ def render_efficiency_analysis(report):
         )
 
 
+def render_school_comparison():
+    """Render school district budget comparison."""
+    st.subheader("🎓 School District Budget Comparison")
+    st.write("Comparing per-student costs: Combined Eastchester Area (3 districts) vs Scarsdale")
+    
+    try:
+        comparison = compare_school_districts()
+        
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Eastchester Area (Combined)",
+                f"${comparison.eastchester_area.total_budget:,.0f}",
+                f"${comparison.eastchester_area.per_student_cost:,.0f}/student"
+            )
+            st.caption(f"{comparison.eastchester_area.total_enrollment:,} students")
+            st.caption(f"3 districts: Eastchester, Bronxville, Tuckahoe")
+        
+        with col2:
+            st.metric(
+                "Scarsdale UFSD",
+                f"${comparison.scarsdale.total_budget:,.0f}",
+                f"${comparison.scarsdale.per_student_cost:,.0f}/student"
+            )
+            st.caption(f"{comparison.scarsdale.enrollment:,} students")
+            st.caption("Single district")
+        
+        with col3:
+            diff = comparison.per_student_difference
+            st.metric(
+                "Difference",
+                f"${abs(diff):,.0f}/student",
+                f"{comparison.per_student_difference_pct:+.1f}%"
+            )
+            st.caption("Per-student cost difference")
+        
+        # Per-student comparison chart
+        df = pd.DataFrame([
+            {
+                'District': 'Eastchester Area\n(Combined)',
+                'Per Student': comparison.eastchester_area.per_student_cost,
+                'Total Budget': comparison.eastchester_area.total_budget,
+                'Enrollment': comparison.eastchester_area.total_enrollment,
+            },
+            {
+                'District': 'Scarsdale UFSD',
+                'Per Student': comparison.scarsdale.per_student_cost,
+                'Total Budget': comparison.scarsdale.total_budget,
+                'Enrollment': comparison.scarsdale.enrollment,
+            }
+        ])
+        
+        fig = px.bar(
+            df,
+            x='District',
+            y='Per Student',
+            color='District',
+            title='School District Cost Per Student',
+            labels={'Per Student': 'Cost Per Student ($)'},
+            color_discrete_map={
+                'Eastchester Area\n(Combined)': '#3498db',
+                'Scarsdale UFSD': '#e74c3c'
+            }
+        )
+        fig.update_layout(showlegend=False, height=400)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Individual district breakdown
+        st.subheader("📊 Individual District Breakdown")
+        
+        individual_df = pd.DataFrame([
+            {
+                'District': d.district_name,
+                'Budget': d.total_budget,
+                'Enrollment': d.enrollment,
+                'Per Student': d.per_student_cost,
+            }
+            for d in comparison.eastchester_area.districts
+        ])
+        
+        # Add Scarsdale for comparison
+        individual_df = pd.concat([
+            individual_df,
+            pd.DataFrame([{
+                'District': comparison.scarsdale.district_name,
+                'Budget': comparison.scarsdale.total_budget,
+                'Enrollment': comparison.scarsdale.enrollment,
+                'Per Student': comparison.scarsdale.per_student_cost,
+            }])
+        ], ignore_index=True)
+        
+        # Format for display
+        display_df = individual_df.copy()
+        display_df['Budget'] = display_df['Budget'].apply(lambda x: f"${x:,.0f}")
+        display_df['Enrollment'] = display_df['Enrollment'].apply(lambda x: f"{x:,}")
+        display_df['Per Student'] = display_df['Per Student'].apply(lambda x: f"${x:,.0f}")
+        display_df.columns = ['District', 'Total Budget', 'Enrollment', 'Per Student']
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Key findings
+        st.info(f"""
+        **Key Finding:** {'Scarsdale' if comparison.per_student_difference > 0 else 'Eastchester Area'} spends 
+        **${abs(comparison.per_student_difference):,.0f} more per student** on education.
+        
+        **Difference:** {abs(comparison.per_student_difference_pct):.1f}% 
+        ({'+' if comparison.per_student_difference > 0 else ''}{comparison.per_student_difference_pct:.1f}%)
+        
+        **Note:** Eastchester area has 3 separate school districts (Eastchester, Bronxville, Tuckahoe) 
+        while Scarsdale has a single unified district.
+        """)
+        
+        # Detailed breakdown
+        with st.expander("📊 Detailed Breakdown"):
+            st.write("**Eastchester Area (Combined):**")
+            st.write(f"- Total Budget: ${comparison.eastchester_area.total_budget:,.0f}")
+            st.write(f"- Total Enrollment: {comparison.eastchester_area.total_enrollment:,}")
+            st.write(f"- Per Student: ${comparison.eastchester_area.per_student_cost:,.2f}")
+            st.write(f"- Number of Districts: {len(comparison.eastchester_area.districts)}")
+            st.write("")
+            st.write("**Individual Districts:**")
+            for district in comparison.eastchester_area.districts:
+                st.write(f"- **{district.district_name}**:")
+                st.write(f"  - Budget: ${district.total_budget:,.0f}")
+                st.write(f"  - Enrollment: {district.enrollment:,}")
+                st.write(f"  - Per Student: ${district.per_student_cost:,.2f}")
+            
+            st.write("")
+            st.write("**Scarsdale UFSD:**")
+            st.write(f"- Total Budget: ${comparison.scarsdale.total_budget:,.0f}")
+            st.write(f"- Enrollment: {comparison.scarsdale.enrollment:,}")
+            st.write(f"- Per Student: ${comparison.scarsdale.per_student_cost:,.2f}")
+            st.write(f"- Fiscal Year: {comparison.scarsdale.fiscal_year}")
+            
+            st.write("")
+            st.write("**Comparison:**")
+            st.write(f"- Per Student Difference: ${comparison.per_student_difference:,.2f}")
+            st.write(f"- Percentage Difference: {comparison.per_student_difference_pct:+.1f}%")
+            st.write(f"- Total Budget Difference: ${comparison.total_budget_difference:,.0f}")
+            st.write(f"- Enrollment Difference: {comparison.enrollment_difference:,} students")
+        
+        # Data source
+        st.caption(f"📅 Data collected: {comparison.eastchester_area.districts[0].collection_date}")
+        st.caption(f"📊 Sources: School district budgets and websites")
+        
+    except Exception as e:
+        st.warning(f"Could not load school budget data: {e}")
+        st.info("""
+        **Note:** School budget data is being collected from district websites.
+        
+        **Eastchester Area Districts:**
+        - Eastchester UFSD (covers Eastchester unincorporated)
+        - Bronxville UFSD (covers Bronxville)
+        - Tuckahoe UFSD (covers Tuckahoe)
+        
+        **Scarsdale:**
+        - Scarsdale UFSD (single unified district)
+        
+        The comparison shows combined budgets and enrollment for the Eastchester area
+        vs Scarsdale's single district to understand per-student spending differences.
+        """)
+
+
 def render_fire_comparison():
     """Render fire department budget comparison."""
     st.subheader("🔥 Fire Department Budget Comparison")
@@ -658,8 +824,8 @@ def create_dashboard():
     st.divider()
     
     # Main tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "🗺️ Map", "📊 Comparison", "🧮 Calculator", "⚡ Efficiency", "🔥 Fire Dept", "📋 Data"
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "🗺️ Map", "📊 Comparison", "🧮 Calculator", "⚡ Efficiency", "🔥 Fire Dept", "🎓 Schools", "📋 Data"
     ])
     
     with tab1:
@@ -688,6 +854,9 @@ def create_dashboard():
         render_fire_comparison()
     
     with tab6:
+        render_school_comparison()
+    
+    with tab7:
         render_data_table(report)
     
     # Footer
