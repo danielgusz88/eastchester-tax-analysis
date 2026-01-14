@@ -1,0 +1,24 @@
+{
+  "eastchester": {
+    "municipality": "Eastchester Fire Department",
+    "fiscal_year": "2024-2025",
+    "total_budget": 9500000,
+    "population": 33000,
+    "per_resident_cost": 287.88,
+    "coverage_area": "Eastchester (unincorporated), Tuckahoe, Bronxville",
+    "data_source": "Eastchester Town Budget (estimated)",
+    "collection_date": "2026-01-14",
+    "notes": "Shared fire department covering 3 municipalities"
+  },
+  "scarsdale": {
+    "municipality": "Scarsdale Fire Department",
+    "fiscal_year": "2024-2025",
+    "total_budget": 6500000,
+    "population": 18000,
+    "per_resident_cost": 361.11,
+    "coverage_area": "Scarsdale only",
+    "data_source": "Scarsdale Village Budget (estimated)",
+    "collection_date": "2026-01-14",
+    "notes": "Dedicated fire department for Scarsdale village"
+  }
+}
