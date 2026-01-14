@@ -956,7 +956,8 @@ def render_town_budget_comparison():
                     {
                         'Municipality': 'Eastchester Area (Combined)',
                         'Municipal Tax per sqft': eastchester_eff['municipal_tax_per_sqft'],
-                        'Municipal Tax per Taxpayer': eastchester_eff['municipal_tax_per_taxpayer'],
+                        'Municipal Tax per Taxpayer': eastchester_eff.get('municipal_tax_per_taxpayer', 0),
+                        'Municipal Tax per Resident': eastchester_eff.get('municipal_tax_per_resident', 0),
                         'Services per Resident': eastchester_eff['services_per_resident'],
                         'Efficiency Ratio': eastchester_eff['municipal_tax_efficiency'],
                         'Municipal Tax % of Total': eastchester_eff.get('municipal_tax_rate', 0),
@@ -969,7 +970,8 @@ def render_town_budget_comparison():
                         pd.DataFrame([{
                             'Municipality': town_data['municipality'],
                             'Municipal Tax per sqft': town_data['municipal_tax_per_sqft'],
-                            'Municipal Tax per Taxpayer': town_data['municipal_tax_per_taxpayer'],
+                            'Municipal Tax per Taxpayer': town_data.get('municipal_tax_per_taxpayer', 0),
+                            'Municipal Tax per Resident': town_data.get('municipal_tax_per_resident', 0),
                             'Services per Resident': town_data['services_per_resident'],
                             'Efficiency Ratio': town_data['municipal_tax_efficiency'],
                             'Municipal Tax % of Total': town_data['municipal_tax_rate'],
@@ -983,7 +985,8 @@ def render_town_budget_comparison():
                         pd.DataFrame([{
                             'Municipality': '**Comparison Average**',
                             'Municipal Tax per sqft': comp_avg['municipal_tax_per_sqft'],
-                            'Municipal Tax per Taxpayer': comp_avg.get('municipal_tax_per_resident', 0) * (typical_sqft / 2000),
+                            'Municipal Tax per Taxpayer': comp_avg.get('municipal_tax_per_resident', 0) * 2.5 / 0.7,  # Convert resident to taxpayer estimate
+                            'Municipal Tax per Resident': comp_avg.get('municipal_tax_per_resident', 0),
                             'Services per Resident': comp_avg['services_per_resident'],
                             'Efficiency Ratio': comp_avg['municipal_tax_efficiency'],
                             'Municipal Tax % of Total': 0,
@@ -992,7 +995,7 @@ def render_town_budget_comparison():
                 
                 # Format for display
                 display_eff_df = efficiency_df.copy()
-                for col in ['Municipal Tax per sqft', 'Municipal Tax per Taxpayer', 'Services per Resident']:
+                for col in ['Municipal Tax per sqft', 'Municipal Tax per Taxpayer', 'Municipal Tax per Resident', 'Services per Resident']:
                     if col in display_eff_df.columns:
                         display_eff_df[col] = display_eff_df[col].apply(lambda x: f"${x:,.2f}" if isinstance(x, (int, float)) and x > 0 else x)
                 

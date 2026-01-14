@@ -105,6 +105,22 @@ class CombinedEastchesterArea:
             total += burden.municipal_tax_per_sqft * w
             weight += w
         return total / weight if weight > 0 else 0
+    
+    @property
+    def weighted_avg_municipal_tax_per_taxpayer(self) -> float:
+        """Weighted average municipal tax (town+village, no school) per taxpayer."""
+        total = 0
+        weight = 0
+        for muni_key, burden in self.tax_burdens.items():
+            pop_weights = {
+                'eastchester_unincorp': 20000,
+                'bronxville': 6500,
+                'tuckahoe': 6500,
+            }
+            w = pop_weights.get(muni_key, 10000)
+            total += burden.municipal_tax_per_taxpayer * w
+            weight += w
+        return total / weight if weight > 0 else 0
 
 
 @dataclass
@@ -347,25 +363,41 @@ class BudgetComparison:
         burdens = self.calculate_tax_burdens(typical_home_value, typical_sqft)
         combined_eastchester = self.get_combined_eastchester_tax_analysis(typical_home_value, typical_sqft)
         
+        # Calculate municipal tax per resident for Eastchester area
+        # We need to estimate municipal tax per resident (not per taxpayer)
+        # Rough estimate: municipal_tax_per_taxpayer * (taxpayers / population)
+        eastchester_taxpayers = combined_eastchester.estimated_taxpayers
+        eastchester_pop = combined_eastchester.total_population
+        
+        # Get weighted average municipal tax per taxpayer
+        weighted_municipal_tax_per_taxpayer = combined_eastchester.weighted_avg_municipal_tax_per_taxpayer
+        
+        # Convert to per resident: multiply by (taxpayers / population)
+        municipal_tax_per_resident = (weighted_municipal_tax_per_taxpayer * 
+                                      (eastchester_taxpayers / eastchester_pop) 
+                                      if eastchester_pop > 0 and eastchester_taxpayers > 0 else 0)
+        
+        # Calculate municipal tax as % of total tax for Eastchester area
+        # Get average total tax per taxpayer first
+        weighted_total_tax_per_taxpayer = combined_eastchester.weighted_avg_tax_per_taxpayer
+        municipal_tax_rate = 0.0
+        if weighted_total_tax_per_taxpayer > 0:
+            municipal_tax_rate = (weighted_municipal_tax_per_taxpayer / weighted_total_tax_per_taxpayer) * 100
+        
         analysis = {
             'eastchester_area': {
                 'municipal_tax_per_sqft': combined_eastchester.weighted_avg_municipal_tax_per_sqft,
-                'municipal_tax_per_taxpayer': combined_eastchester.weighted_avg_municipal_tax_per_taxpayer * (typical_sqft / 2000),  # Normalize
+                'municipal_tax_per_taxpayer': weighted_municipal_tax_per_taxpayer,
+                'municipal_tax_per_resident': municipal_tax_per_resident,
                 'services_per_resident': self.eastchester.per_resident_cost,
                 'municipal_tax_efficiency': 0.0,  # Services per dollar of municipal tax
-                'municipal_tax_rate': 0.0,  # Municipal tax as % of total tax
+                'municipal_tax_rate': municipal_tax_rate,  # Municipal tax as % of total tax
             },
             'comparison_towns': {},
         }
         
         # Calculate efficiency for Eastchester area
         # Efficiency = services per resident / municipal tax per resident
-        # We need to estimate municipal tax per resident (not per taxpayer)
-        # Rough estimate: municipal_tax_per_taxpayer * (taxpayers / population)
-        eastchester_taxpayers = combined_eastchester.estimated_taxpayers
-        eastchester_pop = combined_eastchester.total_population
-        municipal_tax_per_resident = (combined_eastchester.weighted_avg_municipal_tax_per_taxpayer * 
-                                      (eastchester_taxpayers / eastchester_pop) if eastchester_pop > 0 else 0)
         
         if municipal_tax_per_resident > 0:
             analysis['eastchester_area']['municipal_tax_efficiency'] = (
